@@ -1,0 +1,10 @@
+# We have insatlled python 3.13 latest version and saved the path in 
+#Environment varible to access the python appilcation
+
+# installed visual studio and careted a path for  python code to execute that code
+# In visual studio itself opened integrated terminal and Installed streamlit library files ( eg: matplotlib ,seaborn)
+
+# after all this i have runed my code i.e MLCODE.py
+   #command to run is : streamlit run mlcode.py (then it will redirect to frontend page and load there)
+
+#i have pushed to steramlit code to github by using git commands through git bash

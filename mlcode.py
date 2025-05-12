@@ -7,11 +7,20 @@ import joblib
 import os
 from math import pi
 from sklearn.preprocessing import LabelEncoder
+from sklearn.metrics import classification_report, confusion_matrix
 
 st.set_page_config(layout="wide")
-st.title("🧠 ML Dashboard with Visualizations")
+st.title("Machine Learning Dashboard with Enhanced Visuals")
 
-# Load model from local fallback
+with st.sidebar:
+    st.title("Project Information")
+    st.markdown("""
+    **Goal**: Predict high potential customers using ML  
+    **Model**: Trained with customer data  
+    **Input**: Demographic and financial features  
+    **Output**: Prediction (0 = Low Potential, 1 = High Potential)
+    """)
+
 @st.cache_resource
 def load_model():
     model_path = "model.pkl"
@@ -19,8 +28,7 @@ def load_model():
         return joblib.load(model_path)
     return None
 
-# Load uploaded model
-uploaded_model = st.file_uploader("📦 Upload your trained model.pkl", type=["pkl"])
+uploaded_model = st.file_uploader("Upload your trained model.pkl", type=["pkl"])
 
 @st.cache_resource
 def load_model_from_upload(uploaded_file):
@@ -28,10 +36,13 @@ def load_model_from_upload(uploaded_file):
         return joblib.load(uploaded_file)
     return None
 
-# Use uploaded model if available, fallback to local
 model = load_model_from_upload(uploaded_model) or load_model()
 
-# Function to preprocess categorical columns
+expected_features = ['CustomerID', 'Gender', 'EmploymentStatus', 'CreditScore',
+                     'AnnualIncome', 'LoanAmount', 'ExistingLoans', 'Purpose',
+                     'LoanHistory', 'Savings', 'HighPotentialCustomer']
+
+@st.cache_data
 def preprocess_data(df):
     df = df.copy()
     for col in df.select_dtypes(include=['object', 'category']).columns:
@@ -39,125 +50,136 @@ def preprocess_data(df):
         df[col] = le.fit_transform(df[col].astype(str))
     return df
 
-# Prediction function
-# Replace this with the actual features used when training the model
-expected_features = [ 'CustomerID',  'Gender',   'EmploymentStatus',
-  'CreditScore', 'AnnualIncome', 'LoanAmount',  'ExistingLoans',
-  'Purpose', 'LoanHistory', 'Savings', 'HighPotentialCustomer']
-
-def get_predictions(original_data):
+def get_predictions(data):
     if model is not None:
         try:
-            input_data = original_data[expected_features].copy()
+            input_data = data[expected_features].copy()
             input_data = preprocess_data(input_data)
-            predictions = model.predict(input_data)
-            return predictions
+            return model.predict(input_data), model.predict_proba(input_data)
         except Exception as e:
-            st.error(f"❌ Prediction failed: {e}")
-            return None
+            st.error(f"Prediction failed: {e}")
+            return None, None
     else:
-        st.warning("⚠️ No model loaded.")
-        return None
+        st.warning("No model loaded.")
+        return None, None
 
-# Upload CSV file
-uploaded_file = st.file_uploader("📤 Upload your CSV file", type=["csv"])
+uploaded_file = st.file_uploader("Upload your CSV data file", type=["csv"])
 
 if uploaded_file:
     try:
-        data = pd.read_csv(uploaded_file)
-        st.success("✅ File loaded successfully!")
-        st.write("### 🔍 Preview of Data", data.head())
+        df = pd.read_csv(uploaded_file)
+        st.success("Data loaded successfully!")
+        st.write("### Data Preview", df.head())
 
-        st.write("Uploaded data shape:", data.shape)
-        st.write("Columns:", data.columns.tolist())
+        st.subheader("Dataset Summary")
+        st.markdown(f"- Rows: {df.shape[0]}  \n- Columns: {df.shape[1]}")
+        st.markdown(f"- Missing Values: {df.isnull().sum().sum()}")
 
-        # Auto-detect ID column
-        id_column = next((col for col in data.columns if 'id' in col.lower()), None)
-
+        id_column = next((col for col in df.columns if 'id' in col.lower()), None)
         if id_column:
-            st.subheader("🔎 Search by ID")
-            search_id = st.text_input(f"Enter a value from `{id_column}` to get full details")
-
+            st.subheader("Search by ID")
+            search_id = st.text_input(f"Enter {id_column} value")
             if search_id:
-                matched_rows = data[data[id_column].astype(str) == str(search_id)]
-                if not matched_rows.empty:
-                    st.write("### 🔎 Details for ID:", search_id)
-                    st.dataframe(matched_rows)
+                match = df[df[id_column].astype(str) == search_id]
+                if not match.empty:
+                    st.write("### Details:", match)
                 else:
-                    st.warning("⚠️ No matching ID found.")
+                    st.warning("ID not found.")
 
-        # Separate columns
-        numeric_cols = data.select_dtypes(include=["int64", "float64"]).columns.tolist()
-        categorical_cols = data.select_dtypes(include=["object", "category"]).columns.tolist()
+        num_cols = df.select_dtypes(include=["int64", "float64"]).columns.tolist()
+        cat_cols = df.select_dtypes(include=["object", "category"]).columns.tolist()
 
-        if numeric_cols:
-            st.subheader("📈 Line Chart (first 100 rows)")
-            st.line_chart(data[numeric_cols].head(100))
+        st.subheader("Descriptive Statistics")
+        st.dataframe(df.describe(include='all').T.style.background_gradient(cmap='twilight'))
 
-            st.subheader("📊 Correlation Heatmap")
-            fig, ax = plt.subplots()
-            sns.heatmap(data[numeric_cols].corr(), annot=True, cmap="coolwarm", ax=ax)
+        if len(num_cols) >= 2:
+            st.subheader("Correlation Heatmap")
+            fig, ax = plt.subplots(figsize=(10, 6))
+            sns.heatmap(df[num_cols].corr(), annot=True, cmap='mako', fmt=".2f", linewidths=0.5, ax=ax)
             st.pyplot(fig)
 
-            st.subheader("📌 Histograms")
-            for col in numeric_cols:
-                fig, ax = plt.subplots()
-                sns.histplot(data[col], kde=True, ax=ax)
-                ax.set_title(f"Histogram of {col}")
-                st.pyplot(fig)
+        st.subheader("Histograms")
+        for col in num_cols:
+            fig, ax = plt.subplots()
+            sns.histplot(df[col], kde=True, color='#4B0082', ax=ax)  # Dark Purple color
+            ax.set_title(f"Distribution of {col}", fontsize=14)
+            ax.set_xlabel(col)
+            ax.set_ylabel("Frequency")
+            ax.set_facecolor('#f0f0f0')
+            st.pyplot(fig)
 
-            st.subheader("📊 Bar Plots (Top 5 Frequent Categories)")
-            for col in categorical_cols:
-                fig, ax = plt.subplots()
-                top_categories = data[col].value_counts().nlargest(5)
-                sns.barplot(x=top_categories.values, y=top_categories.index, ax=ax)
-                ax.set_title(f"Top 5 Categories in '{col}'")
-                ax.set_xlabel("Count")
-                st.pyplot(fig)
+        st.subheader("Categorical Columns - Top Categories")
+        for col in cat_cols:
+            fig, ax = plt.subplots()
+            top = df[col].value_counts().nlargest(5)
+            sns.barplot(x=top.values, y=top.index, ax=ax, palette="dark")
+            ax.set_title(f"Most Frequent Categories in {col}", fontsize=14)
+            ax.set_xlabel("Count")
+            ax.set_ylabel(col)
+            st.pyplot(fig)
 
-            st.subheader("📉 Area Chart (first 100 rows)")
-            st.area_chart(data[numeric_cols].head(100))
+        if len(num_cols) >= 2:
+            st.subheader("Scatter Plot")
+            fig, ax = plt.subplots()
+            sns.scatterplot(x=num_cols[0], y=num_cols[1], hue=df[cat_cols[0]] if cat_cols else None,
+                            palette='dark', data=df, ax=ax)
+            ax.set_title(f"Scatter: {num_cols[0]} vs {num_cols[1]}")
+            st.pyplot(fig)
 
-            if len(numeric_cols) >= 2:
-                st.subheader("📍 Scatter Plot")
-                fig, ax = plt.subplots()
-                sns.scatterplot(x=numeric_cols[0], y=numeric_cols[1], data=data, ax=ax)
-                ax.set_title(f"Scatter Plot: {numeric_cols[0]} vs {numeric_cols[1]}")
-                st.pyplot(fig)
+            st.subheader("Area Chart")
+            st.area_chart(df[num_cols].head(100))
 
-            if len(numeric_cols) >= 3:
-                st.subheader("🧪 Bubble Chart")
-                fig, ax = plt.subplots()
-                sns.scatterplot(x=numeric_cols[0], y=numeric_cols[1], size=numeric_cols[2],
-                                data=data, ax=ax, legend=False, sizes=(20, 200))
-                ax.set_title(f"Bubble Chart: {numeric_cols[0]} vs {numeric_cols[1]} sized by {numeric_cols[2]}")
-                st.pyplot(fig)
+        if len(num_cols) >= 5:
+            st.subheader("Radar Chart of Mean Features")
+            categories = num_cols[:5]
+            values = df[categories].mean().tolist()
+            values += values[:1]
+            angles = [n / float(len(categories)) * 2 * pi for n in range(len(categories))]
+            angles += angles[:1]
+            fig, ax = plt.subplots(subplot_kw={'polar': True})
+            ax.plot(angles, values, linewidth=2, color='#8A2BE2')  # Violet color
+            ax.fill(angles, values, color='#8A2BE2', alpha=0.3)
+            plt.xticks(angles[:-1], categories)
+            st.pyplot(fig)
 
-                st.subheader("🕸 Spider/Radar Chart")
-                categories = numeric_cols[:5]
-                radar_data = data[categories].mean()
-                N = len(categories)
-                angles = [n / float(N) * 2 * pi for n in range(N)]
-                angles += angles[:1]
-                radar_values = radar_data.tolist()
-                radar_values += radar_values[:1]
-
-                fig, ax = plt.subplots(subplot_kw={'polar': True})
-                plt.xticks(angles[:-1], categories)
-                ax.plot(angles, radar_values)
-                ax.fill(angles, radar_values, alpha=0.25)
-                st.pyplot(fig)
-        else:
-            st.info("No numeric columns found for visualization.")
-
-        st.subheader("🤖 Predictions")
-        predictions = get_predictions(data)
+        st.markdown("""<h2 style='color:#8A2BE2; font-size:28px;'>Predictions</h2>""", unsafe_allow_html=True)
+        predictions, proba = get_predictions(df)
         if predictions is not None:
-            data["Prediction"] = predictions
-            st.write("### 📋 Model Predictions with Data")
-            st.dataframe(data)
+            df["Prediction"] = predictions
+            st.write("### Predictions")
+            st.dataframe(df)
+
+            st.write("### Prediction Class Distribution")
+            fig, ax = plt.subplots()
+            sns.countplot(x="Prediction", data=df, palette="mako", ax=ax)
+            ax.set_title("Predicted Class Distribution", fontsize=14)
+            st.pyplot(fig)
+
+            high_risk = df[df["Prediction"] == 1]
+            st.subheader("High Potential Customers")
+            st.dataframe(high_risk.head())
+
+            st.subheader("Classification Report")
+            true_labels = df["HighPotentialCustomer"] if "HighPotentialCustomer" in df.columns else None
+            if true_labels is not None:
+                report = classification_report(true_labels, predictions, output_dict=True)
+                st.dataframe(pd.DataFrame(report).transpose())
+
+                st.subheader("Confusion Matrix")
+                cm = confusion_matrix(true_labels, predictions)
+                fig, ax = plt.subplots()
+                sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', xticklabels=["Low", "High"], yticklabels=["Low", "High"], ax=ax)
+                ax.set_xlabel("Predicted")
+                ax.set_ylabel("Actual")
+                st.pyplot(fig)
+
+            @st.cache_data
+            def convert_df(df):
+                return df.to_csv(index=False).encode('utf-8')
+
+            st.download_button("Download Predictions", convert_df(df), "predictions.csv", "text/csv")
 
     except Exception as e:
-        st.error(f"❌ Error reading file: {e}")
+        st.error(f"Error loading data: {e}")
 else:
-    st.info("📎 Please upload a CSV file to begin.")
+    st.info("Upload a CSV file to explore your data and get predictions.")

@@ -1,7 +1,9 @@
 pandas
 numpy
-matplotlib
+matplotlib                 # these are my librar files for Streamlit 
 seaborn
 scikit-learn
 openpyxl
-joblib
+joblib                        # pip install scikit-learn
+                              # pip install matplotlib
+                              # pip install seaborn
